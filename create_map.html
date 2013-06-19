@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type">
+    <meta content="utf-8" http-equiv="encoding">
+    <style type="text/css">
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #map_canvas {
+        height: 100%;
+      }
+      @media print {
+        html, body {
+          height: auto;
+        }
+        #map_canvas {
+          height: 650px;
+        }
+      }
+    </style>
+    <script src="https://maps.googleapis.com/maps/api/js?v=3.exp&sensor=false"></script>
+    <script src="scripts/PlayerObj.js"></script>
+    <script>
+      var params = {};
+      if (location.search) {
+          var parts = location.search.substring(1).split('&');
+
+          for (var i = 0; i < parts.length; i++) {
+              var nv = parts[i].split('=');
+              if (!nv[0]) continue;
+              params[nv[0]] = nv[1] || true;
+          }
+      }
+
+      var map; 
+      var defaultLat = params.lat;
+      var defaultLon = params.lon;
+      var startLat;
+      var startLon;
+      var endLat;
+      var endLon;
+      var locCtr = 0;
+      var locations = [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
+      var locColors = ['#FFFF00', '#00FF00', '#0000FF'];
+      var rectangle2;
+
+      function setLoc(){
+        var lc = locColors[locCtr];
+
+        // note for lat, the lower number is to the bottom
+        // and for lon, the lower number is to the left
+        // in north america
+        var lat1 = startLat;
+        var lon1 = startLon;
+        var lat2 = endLat;
+        var lon2 = endLon;
+        var tmplat;
+        var tmplon;
+
+        if (lon1 > lon2){
+        // if coords 1 is to the right 
+        // then reverse them
+          tmplat = lat1;
+          tmplon = lon1;
+          lat1 = lat2;
+          lon1 = lon2;
+          lat2 = tmplat;
+          lon2 = tmplon;
+        }
+        // at this point we are guaranteed coords 1 are to
+        // the left of cooords 2 so now we check up/down
+        if (lat1 > lat2){
+        // we need to adjust here
+          tmplat = lat1;
+          lat1 = lat2;
+          lat2 = tmplat;
+        }
+        startLat = lat1;
+        startLon = lon1;
+        endLat = lat2;
+        endLon = lon2;
+
+        rectangle2 = new google.maps.Rectangle({
+            strokeColor: lc,
+            strokeOpacity: 0.8,
+            strokeWeight: 2,
+            fillColor: lc,
+            fillOpacity: 0.35,
+            map: map,
+            bounds: new google.maps.LatLngBounds(
+              new google.maps.LatLng(startLat, startLon), // sw
+              new google.maps.LatLng(endLat, endLon)) // ne
+        });
+        map.fitBounds(rectangle2.getBounds());
+      }
+
+      function setGPS(startOrEnd){
+        var thisStart = startOrEnd;
+        navigator.geolocation.getCurrentPosition(function(position){
+          if (thisStart == 'start'){
+            startLat = position.coords.latitude;
+            startLon = position.coords.longitude;
+          }else{
+            endLat = position.coords.latitude;
+            endLon = position.coords.longitude;
+            setLoc();
+          }
+        });
+      }
+
+      function initialize() {
+        map = new google.maps.Map(document.getElementById('map_canvas'), { 
+          zoom: 15,
+          center: new google.maps.LatLng(defaultLat, defaultLon),
+          mapTypeId: google.maps.MapTypeId.ROADMAP
+        });
+
+        // create me
+        myPlayerObj = new PlayerObj(map, 1, 1, 'ME', 'me', defaultLat, defaultLon, 'images/blue-dot.png');
+
+        // track me
+        function showPosition(position){
+          myPlayerObj.myMarker.setPosition(new google.maps.LatLng(position.coords.latitude, position.coords.longitude));
+        }       // end function showPosition()
+
+        //navigator.geolocation.getCurrentPosition(showPosition);
+        navigator.geolocation.watchPosition(showPosition);
+        var customControlDiv = document.getElementById("custom_controls");
+        map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(customControlDiv);
+      }
+
+      var buttonState = 0;
+      function buttonClicked(){
+        switch(buttonState)
+        {
+          case 0:
+          {
+            buttonState++;
+            document.getElementById('but1').innerHTML = 'Stop';
+            setGPS('start');
+            break;
+          }
+          case 1:
+          {
+            buttonState++;
+            document.getElementById('but1').innerHTML = 'Accept';
+            document.getElementById('but2').innerHTML = 'Reject';
+            setGPS('end');
+            break;
+          }
+          case 2:
+          {
+            buttonState = 0;
+            //alert('rectangle accepted');
+            document.getElementById('but1').innerHTML = 'Start';
+            document.getElementById('but2').innerHTML = 'Exit';
+            var indx = locCtr * 4;
+            locations[indx] = startLat;
+            locations[indx+1] = startLon;
+            locations[indx+2] = endLat;
+            locations[indx+3] = endLon;
+            locCtr++;
+            if (locCtr == 3){
+              var mapName = prompt("Map Name:","");
+              // here we write the map to a web api
+              var createMapURL = "apis/mod_python/create_map.py?mapname=" + mapName + "&r1slat=" + locations[0] + "&r1slon=" + locations[1] + "&r1elat=" + locations[2] + "&r1elon=" + locations[3] + "&r2slat=" + locations[4] + "&r2slon=" + locations[5] + "&r2elat=" + locations[6] + "&r2elon=" + locations[7] + "&r3slat=" + locations[8] + "&r3slon=" + locations[9] + "&r3elat=" + locations[10] + "&r3elon=" + locations[11];
+              window.location = createMapURL;
+            }
+            break;
+          }
+          default:
+          {
+            alert('Logic Error!');
+            break;
+          }
+        }
+      }
+
+      function rectangleRejected(){
+        if (buttonState != 2){
+          window.location = 'index.html';
+        }else{
+          //alert('rectangle rejected');
+          buttonState = 0;
+          document.getElementById('but1').innerHTML = 'Start';
+          document.getElementById('but2').innerHTML = 'Exit';
+          if (null != rectangle2) rectangle2.setMap(null);
+        }
+      }
+
+      google.maps.event.addDomListener(window, 'load', initialize);
+    </script>
+  </head>
+  <body>
+    <div id="map_canvas"></div>
+    <div id="custom_controls" style="border:1px solid black;margin:8px;padding:4px;">
+      <div id="button1" name="button1" onClick="buttonClicked();">
+        <button id="but1" name="but1" style="font: bold 14px Arial">Start</button>
+      </div>
+      <br/>
+      <div id="button2" name="button2" style="visibility:visible;">
+        <button id="but2" name="but2" onClick="rectangleRejected();">Exit</button>
+      </div>
+    </div>
+  </body>
+</html>
+

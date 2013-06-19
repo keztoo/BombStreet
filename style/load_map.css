@@ -1,0 +1,53 @@
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #map_canvas {
+        height: 100%;
+      }
+      @media print {
+        html, body {
+          height: auto;
+        }
+        #map_canvas {
+          height: 650px;
+        }
+      }
+      .detonator_style{
+        text-align:center;
+        font-weight: bold;
+        font-family:Georgia;
+        font-size:24px;
+        width:32%;
+        position:relative;
+        float:left;
+        color:black;
+        border:1px solid black;
+        background-color:#FF00FF;
+      }
+      .charge_style{
+        text-align:center;
+        font-weight: bold;
+        font-family:Georgia;
+        font-size:24px;
+        width:32%;
+        position:relative;
+        float:left;
+        color:black;
+        border:1px solid black;
+        background-color:#FFA500;
+      }
+      .case_style{
+        text-align:center;
+        font-weight: bold;
+        font-family:Georgia;
+        font-size:24px;
+        width:32%;
+        position:relative;
+        float:left;
+        color:black;
+        border:1px solid black;
+        background-color:#00FFFF;
+      }
+

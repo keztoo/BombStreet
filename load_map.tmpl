@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type">
+    <meta content="utf-8" http-equiv="encoding">
+    <link rel="stylesheet" href="@MACRO_style_subdirectory/load_map.css" type="text/css" />
+    <script src="https://maps.googleapis.com/maps/api/js?v=3.exp&sensor=false"></script>
+    <script src="@MACRO_javascript_subdirectory/LocationRectangle.js"></script>
+    <script src="@MACRO_javascript_subdirectory/PlayerObj.js"></script>
+    <script src="@MACRO_javascript_subdirectory/BombObj.js"></script>
+    <script src="@MACRO_javascript_subdirectory/kajax.js"></script>
+    <script>
+      var map; 
+      var myPlayerObj;
+      var players = {};
+      var insideRectangle = 0;
+      var locations = new Array();
+      var bombs = new Array();
+      var defaultLat = @MACRO_default_lat;
+      var defaultLon = @MACRO_default_lon;
+      var currentLat = defaultLat;
+      var currentLon = defaultLon;
+      var colorMap = {'yellow':'#FFFF00', 'red':'#FF0000', 'green':'#00FF00', 'blue':'#0000FF', 'purple':'#800080', 'orange':'#FFA500', 'maroone':'#800000', 'magenta':'#FF00FF', 'cyan':'#00FFFF'};
+
+      function playSound(){
+        var playThis = document.getElementById("sound_element");
+        if (!playThis.paused) {
+            playThis.pause();
+            playThis.currentTime = 0.0;
+        }
+        playThis.play();
+      }
+
+      function createExplosion(lat,lon){
+        var bombSize = 2;
+        var countDown = 10;
+        var halfWay = countDown / 2;
+        var marker = new google.maps.Marker({
+          position: new google.maps.LatLng(lat, lon),
+          map: map
+          });
+
+        var timer = setInterval(function(){
+          countDown--;
+          if (countDown == 0){
+            if (null != marker) marker.setMap(null);
+            clearInterval(timer);
+          }else{
+            if (countDown < halfWay)
+              bombSize = bombSize / 2;
+            else
+              bombSize = bombSize * 2;
+
+            marker.setIcon(new google.maps.MarkerImage(
+            "@MACRO_image_subdirectory/explosion2.png",
+            new google.maps.Size(bombSize, bombSize),
+            new google.maps.Point(0, 0),
+            new google.maps.Point(0, 0),
+            new google.maps.Size(bombSize, bombSize))
+            );
+          }
+            },125);
+      }
+
+      function handleDetonateResponse(resp){
+        // alert(resp);
+      }
+
+      // remove an element from an array
+      function removeByIndex(arr, index) {
+        arr.splice(index, 1);
+      }
+
+      // the user has pressed the fire button
+      // see which bombs have been activated
+      // and send those on to the server
+      function detonateBomb(){
+        var numToSend = 0;
+        var soundAlreadyPlayed = 0;
+        var postStr = "map_id=" + @MACRO_map_id + "&user_id=" + @MACRO_player_id;
+        var bombsSent = new Array();
+        if (bombs.length > 0){
+          for(i=0;i<bombs.length;i++){
+            nextBomb = bombs[i];
+            if (nextBomb.bombState == 1){
+              if (soundAlreadyPlayed == 0){
+                playSound();
+                soundAlreadyPlayed = 1;
+              }
+              numToSend++;
+              var latFieldName = "lat" + numToSend;
+              var lonFieldName = "lon" + numToSend;
+              postStr = postStr + "&" + latFieldName + "=" + nextBomb.bombLat;
+              postStr = postStr + "&" + lonFieldName + "=" + nextBomb.bombLon;
+              bombsSent.push(i);
+            }
+          }
+          if (numToSend > 0){
+            // clear out map markers
+            for(i=0;i<bombsSent.length;i++){
+              if (null != bombs[bombsSent[i]].bombMarker) bombs[bombsSent[i]].bombMarker.setMap(null);
+            }
+            // remove bombs from bomb array
+            for(i=0;i<bombsSent.length;i++){
+              removeByIndex(bombs, bombsSent[i]);
+            }
+            //alert(postStr);
+            kajaxPostServer('add_to_detonation_q.py', postStr, handleDetonateResponse);
+          }
+        }
+      }
+
+      function dropBomb(){
+        if (locations[0].recUserWeaponCount > 0 && locations[1].recUserWeaponCount > 0 && locations[2].recUserWeaponCount > 0){
+          var answer = confirm("Drop Bomb Here?");
+          if (answer){
+            bombs.push( new BombObj(map, currentLat, currentLon) );
+            locations[0].recUserWeaponCount--;
+            document.getElementById(locations[0].weaponDivName).innerHTML = locations[0].recUserWeaponCount;
+            locations[1].recUserWeaponCount--;
+            document.getElementById(locations[1].weaponDivName).innerHTML = locations[1].recUserWeaponCount;
+            locations[2].recUserWeaponCount--;
+            document.getElementById(locations[2].weaponDivName).innerHTML = locations[2].recUserWeaponCount;
+          }
+        }
+      }		// end function dropBomb
+
+      function initialize() {
+        // create map
+        map = new google.maps.Map(document.getElementById('map_canvas'), { 
+          zoom: 11,
+          center: new google.maps.LatLng(currentLat, currentLon),
+          mapTypeId: google.maps.MapTypeId.ROADMAP
+        });
+
+        // create me
+        myPlayerObj = new PlayerObj(map, @MACRO_map_id, @MACRO_player_id, 'ME', 'me', currentLat, currentLon, '@MACRO_image_subdirectory/blue-dot.png');
+
+        // track me
+        function showPosition(position){
+          currentLat = position.coords.latitude;
+          currentLon = position.coords.longitude;
+          myPlayerObj.myMarker.setPosition(new google.maps.LatLng(currentLat, currentLon));
+
+          // collision detection me and locations
+          for( i=0; i < locations.length; i++ ){
+            var nextLoc = locations[i];
+            if (currentLat > nextLoc.recStartLat && currentLat < nextLoc.recEndLat && currentLon > nextLoc.recStartLon && currentLon < nextLoc.recEndLon){
+              nextLoc.gmRect.setOptions({strokeColor: colorMap['red'], fillColor: colorMap['red']});
+              insideRectangle = i + 1;
+            }else{
+              nextLoc.gmRect.setOptions({strokeColor: nextLoc.recColor, fillColor: nextLoc.recColor});
+              if ( insideRectangle == (i + 1) ){insideRectangle = 0;}
+            }
+          }
+        }	// end function showPosition()
+
+        // create our locations
+        locations[0] = new LocationRectangle(map, 'location name', @MACRO_r1slat, @MACRO_r1slon, @MACRO_r1elat, @MACRO_r1elon, colorMap['magenta'], 13, 'detonator_countdown', 'detonators');
+        locations[1] = new LocationRectangle(map, 'location name', @MACRO_r2slat, @MACRO_r2slon, @MACRO_r2elat, @MACRO_r2elon, colorMap['orange'], 13, 'charge_countdown', 'charges');
+        locations[2] = new LocationRectangle(map, 'location name', @MACRO_r3slat, @MACRO_r3slon, @MACRO_r3elat, @MACRO_r3elon, colorMap['cyan'], 13, 'case_countdown', 'cases');
+
+        // show our custom controls in the bottom right
+        var customControlDiv = document.getElementById("custom_controls");
+        map.controls[google.maps.ControlPosition.RIGHT_BOTTOM].push(customControlDiv);
+
+        // kick-off our async routines
+        navigator.geolocation.watchPosition(showPosition);
+        setInterval ( "timerTick()", 1000 );
+
+      }		// end of function 'initialize'
+
+      // handle the response from a user update post
+      function handleUpdateResponse(resp){
+        eval(resp);
+        var numEntries = otherPlayers.length / 3;
+        for ( indx = 0, offset = 0; indx < numEntries; indx++, offset += 3 ){
+          nextUpdateId = otherPlayers[offset];
+          nextUpdateLat = otherPlayers[offset + 1];  
+          nextUpdateLon = otherPlayers[offset + 2];  
+          if (nextUpdateId in players){
+            // if player already exists update coords
+            players[nextUpdateId].myMarker.setPosition(new google.maps.LatLng(nextUpdateLat, nextUpdateLon));
+          }else{
+            // otherwise create new player and add to the hash
+            players[nextUpdateId] = new PlayerObj(map, @MACRO_map_id, nextUpdateId, nextUpdateId, 'enemy', nextUpdateLat, nextUpdateLon, '@MACRO_image_subdirectory/orange-dot.png');
+          }
+        }
+        // here we process any explosions we were sent
+        var numExplosions = newExplosions.length / 2;
+        for ( indx = 0, offset = 0, played_once = 0; indx < numExplosions; indx++, offset +=2 ){
+          createExplosion(newExplosions[offset], newExplosions[offset +1])
+          if (played_once == 0){
+            playSound();
+            played_once = 1;
+          }
+        }
+        // here we process any hits we were sent
+        var numHits = newHits.length / 2;
+        for ( indx = 0, offset = 0; indx < numHits; indx++, offset +=2 ){
+          if (newHits[offset] == 'h'){
+            alert('You are killed by ' + newHits[offset +1]);
+          }else{
+            alert('You killed  ' + newHits[offset +1]);
+          }
+        }
+      } 	// end function handleUpdateResponse()
+
+      // a one second timer tick
+      function timerTick(){
+        if ( (insideRectangle > 0) && (insideRectangle < (locations.length + 1)) ){
+          // if we are inside a location decrement its count down timer 
+          // and if it has rolled over reset it and increment the users weapon count
+          var locRec = locations[insideRectangle-1];
+          locRec.recCountDown--;
+          if (locRec.recCountDown == 0){
+            locRec.recCountDown = locRec.recCountDownInitializer;
+            locRec.recUserWeaponCount++;
+          }
+          document.getElementById(locRec.countDownDivName).innerHTML = locRec.recCountDown;
+          document.getElementById(locRec.weaponDivName).innerHTML = locRec.recUserWeaponCount;
+        }
+        // notify server of our location
+        var poststr = "map_id=" + @MACRO_map_id + "&user_id=" + @MACRO_player_id + "&user_lat=" + currentLat + "&user_lon=" + currentLon;
+        kajaxPostServer('update_user.py', poststr, handleUpdateResponse);
+      } 	// end function timerTick()
+
+      google.maps.event.addDomListener(window, 'load', initialize);
+    </script>
+  </head>
+  <body>
+    <audio id="sound_element" name="sound_element" title="Sample" autobuffer>
+      <source src="@MACRO_image_subdirectory/hit_target.mp3" type="audio/mpeg">
+    </audio>
+    <div id="map_canvas"></div>
+    <!-- the custom controls at the bottom right -->
+    <div id="custom_controls" style="border:1px solid black;padding:2px;">
+
+      <!-- the count down timers -->
+      <div style="border:none;">
+        <div class="detonator_style" id="detonator_countdown" name="detonator_countdown">13</div>
+        <div class="charge_style" id="charge_countdown" name="charge_countdown">13</div>
+        <div class="case_style" id="case_countdown" name="case_countdown">13</div>
+      </div>
+
+      <!-- the weapon counters -->
+      <div style="border:none;">
+        <div class="detonator_style" id="detonators" name="detonators">0</div>
+        <div class="charge_style" id="charges" name="charges">0</div>
+        <div class="case_style" id="cases" name="cases">0</div>
+      </div>
+
+      <!-- the input buttons -->
+      <div style="padding-top:8px; padding-bottom:0px;">
+
+        <table align=center width=100%><tr>
+          <td align=center width=60px cellpadding=4px cellspacing=4px>
+            <img src="@MACRO_image_subdirectory/bomb_inactive.png" onClick="dropBomb();">
+          </td>
+          <td align=center width=60px cellpadding=4px cellspacing=4px>
+            <img src="@MACRO_image_subdirectory/fire1.png" onClick="detonateBomb();">
+          </td>
+        </tr></table>
+      <div>
+
+    </div>
+  </body>
+</html>
+
